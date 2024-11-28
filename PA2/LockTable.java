@@ -8,131 +8,156 @@ import java.util.Map;
 import simpledb.file.BlockId;
 
 /**
- * The lock table, which provides methods to lock and unlock blocks.
- * If a transaction requests a lock that causes a conflict with an
- * existing lock, then that transaction is placed on a wait list.
- * There is only one wait list for all blocks.
- * When the last lock on a block is unlocked, then all transactions
- * are removed from the wait list and rescheduled.
- * If one of those transactions discovers that the lock it is waiting for
- * is still locked, it will place itself back on the wait list.
- * 
- * @author Edward Sciore
+ * The lock table implementing the Wait-Die deadlock prevention scheme.
+ * Key features:
+ * - Uses transaction IDs to determine lock priority (lower ID = older
+ * transaction)
+ * - Younger transactions abort when requesting locks held by older ones
+ * - Older transactions wait for younger ones to release locks
+ * - Supports both shared (S) and exclusive (X) locks
+ * - Represents X-locks with negative transaction IDs in the lock list
  */
 class LockTable {
 
+    /**
+     * Maps blocks to their current lock holders.
+     * The List<Integer> contains transaction IDs where:
+     * - Positive ID (e.g., 5): Transaction 5 holds a shared (S) lock
+     * - Negative ID (e.g., -5): Transaction 5 holds an exclusive (X) lock
+     */
     private Map<BlockId, List<Integer>> locks = new HashMap<>();
 
     /**
-     * Grant an SLock on the specified block.
+     * Grants a shared (S) lock following Wait-Die protocol.
+     * Younger transactions abort when conflicting with older ones' X-locks.
      * 
-     * @param blk   a reference to the disk block
-     * @param txnum the transaction ID requesting the lock
+     * @param blk  the block to lock
+     * @param txId the ID of requesting transaction
+     * @throws LockAbortException if Wait-Die requires this transaction to abort
      */
-    public synchronized void sLock(BlockId blk, int txnum) {
-        List<Integer> txList = locks.get(blk);
+    public synchronized void sLock(BlockId blk, int txId) {
+        while (true) {
+            List<Integer> txList = locks.get(blk);
 
-        // If the list is not empty
-        if (txList != null) {
-            // Create a copy of the list
-            List<Integer> txListCopy = new ArrayList<>(txList);
+            if (txList == null) {
+                // No existing locks - create new list and grant S-lock
+                txList = new ArrayList<>();
+                locks.put(blk, txList);
+                txList.add(txId);
+                return;
+            }
 
-            // Check if there's an Xlock
-            for (int tid : txListCopy) {
-                if (tid < 0) { // Negative ID indicates Xlock
-                    int holderTx = -tid; // Get actual TX number
-                    if (txnum > holderTx) { // If younger transaction
-                        throw new LockAbortException(); // Die
-                    }
+            // Already holds either type of lock - no need to wait
+            if (txList.contains(txId) || txList.contains(-txId)) {
+                return;
+            }
 
-                    // Older transaction waits
-                    try {
-                        wait();
-                    } catch (InterruptedException e) {
+            boolean shouldWait = false;
+            // Check for conflicts with X-locks
+            for (int tid : txList) {
+                if (tid < 0) { // Found an X-lock
+                    // Wait-Die check: abort if we're younger than lock holder
+                    if (txId > -tid) {
                         throw new LockAbortException();
                     }
+                    shouldWait = true;
+                    break;
                 }
             }
-        }
 
-        // If the list is empty
-        else {
-            txList = new ArrayList<>();
-            locks.put(blk, txList);
-        }
+            if (!shouldWait) {
+                // No X-locks found, safe to grant S-lock
+                txList.add(txId);
+                return;
+            }
 
-        // Get the list again in case it changed while waiting
-        txList = locks.get(blk);
-        if (txList == null) {
-            txList = new ArrayList<>();
-            locks.put(blk, txList);
+            // Must wait - older transaction has X-lock
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                throw new LockAbortException();
+            }
         }
-        txList.add(txnum);
     }
 
     /**
-     * Grant an XLock on the specified block.
+     * Grants an exclusive (X) lock following Wait-Die protocol.
+     * Younger transactions abort when conflicting with any older transaction's
+     * lock.
      * 
-     * @param blk   a reference to the disk block
-     * @param txnum the transaction ID requesting the lock
+     * @param blk  the block to lock
+     * @param txId the ID of requesting transaction
+     * @throws LockAbortException if Wait-Die requires this transaction to abort
      */
-    synchronized void xLock(BlockId blk, int txnum) {
-        List<Integer> txList = locks.get(blk);
+    synchronized void xLock(BlockId blk, int txId) {
+        while (true) {
+            List<Integer> txList = locks.get(blk);
 
-        // If the list is not empty
-        if (txList != null) {
-            // Create a copy of the list
-            List<Integer> txListCopy = new ArrayList<>(txList);
+            if (txList == null) {
+                // No existing locks - create new list and grant X-lock
+                txList = new ArrayList<>();
+                locks.put(blk, txList);
+                txList.add(-txId); // Negative ID indicates X-lock
+                return;
+            }
 
-            // Check existing locks
-            for (int tid : txListCopy) {
-                int holderTx = (tid < 0) ? -tid : tid;
-                if (txnum > holderTx) { // If younger transaction
-                    throw new LockAbortException(); // Die
-                }
+            // Already holds this X-lock
+            if (txList.contains(-txId)) {
+                return;
+            }
 
-                // Older transaction waits
-                try {
-                    wait();
-                } catch (InterruptedException e) {
-                    throw new LockAbortException();
+            boolean shouldWait = false;
+            // Check for conflicts with other transactions' locks
+            for (int tid : txList) {
+                if (tid != txId) { // Skip our own S-lock if we have one
+                    int holderTx = (tid < 0) ? -tid : tid;
+                    // Wait-Die check: abort if we're younger than any lock holder
+                    if (txId > holderTx) {
+                        throw new LockAbortException();
+                    }
+                    shouldWait = true;
+                    break;
                 }
             }
-        }
 
-        // If the list is empty
-        else {
-            txList = new ArrayList<>();
-            locks.put(blk, txList);
-        }
+            if (!shouldWait) {
+                // No conflicts, safe to grant X-lock
+                txList.remove(Integer.valueOf(txId)); // Remove S-lock if exists
+                txList.add(-txId);
+                return;
+            }
 
-        // Get the list again in case it changed while waiting
-        txList = locks.get(blk);
-        if (txList == null) {
-            txList = new ArrayList<>();
-            locks.put(blk, txList);
+            // Must wait - other transactions have locks
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                throw new LockAbortException();
+            }
         }
-        txList.add(-txnum); // Negative indicates Xlock
     }
 
     /**
-     * Release a lock on the specified block.
+     * Releases both S and X locks held by the transaction on the specified block.
+     * Notifies all waiting transactions to check if they can now acquire their
+     * locks.
      * 
-     * @param blk   a reference to the disk block
-     * @param txnum the transaction ID releasing the lock
+     * @param blk  the block whose locks should be released
+     * @param txId the ID of transaction releasing its locks
      */
-    synchronized void unlock(BlockId blk, int txnum) {
+    synchronized void unlock(BlockId blk, int txId) {
         List<Integer> txList = locks.get(blk);
         if (txList == null)
             return;
 
-        // Remove both potential lock types
-        txList.remove(Integer.valueOf(txnum));
-        txList.remove(Integer.valueOf(-txnum));
+        // Remove both types of locks (if they exist)
+        txList.remove(Integer.valueOf(txId)); // Remove S-lock
+        txList.remove(Integer.valueOf(-txId)); // Remove X-lock
 
+        // Remove block entry if no more locks
         if (txList.isEmpty()) {
             locks.remove(blk);
         }
+        // Wake up all waiting transactions
         notifyAll();
     }
 }

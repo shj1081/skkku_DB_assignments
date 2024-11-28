@@ -17,13 +17,13 @@ import simpledb.tx.recovery.RecoveryMgr;
  * @author Edward Sciore
  */
 public class Transaction {
-    private static int nextTxNum = 0;
+    private static int nextTxId = 0;
     private static final int END_OF_FILE = -1;
     private RecoveryMgr recoveryMgr;
     private ConcurrencyMgr concurMgr;
     private BufferMgr bm;
     private FileMgr fm;
-    private int txnum;
+    private int txId; // transaction id
     private BufferList mybuffers;
 
     /**
@@ -41,9 +41,9 @@ public class Transaction {
     public Transaction(FileMgr fm, LogMgr lm, BufferMgr bm) {
         this.fm = fm;
         this.bm = bm;
-        txnum = nextTxNumber();
-        recoveryMgr = new RecoveryMgr(this, txnum, lm, bm);
-        concurMgr = new ConcurrencyMgr(txnum);
+        txId = nexttxIdber();
+        recoveryMgr = new RecoveryMgr(this, txId, lm, bm);
+        concurMgr = new ConcurrencyMgr(txId);
         mybuffers = new BufferList(bm);
     }
 
@@ -55,7 +55,7 @@ public class Transaction {
      */
     public void commit() {
         recoveryMgr.commit();
-        System.out.println("transaction " + txnum + " committed");
+        System.out.println("transaction " + txId + " committed");
         concurMgr.release();
         mybuffers.unpinAll();
     }
@@ -69,7 +69,7 @@ public class Transaction {
      */
     public void rollback() {
         recoveryMgr.rollback();
-        System.out.println("transaction " + txnum + " rolled back");
+        System.out.println("transaction " + txId + " rolled back");
         concurMgr.release();
         mybuffers.unpinAll();
     }
@@ -83,7 +83,7 @@ public class Transaction {
      * before user transactions begin.
      */
     public void recover() {
-        bm.flushAll(txnum);
+        bm.flushAll(txId);
         recoveryMgr.recover();
     }
 
@@ -162,7 +162,7 @@ public class Transaction {
             lsn = recoveryMgr.setInt(buff, offset, val);
         Page p = buff.contents();
         p.setInt(offset, val);
-        buff.setModified(txnum, lsn);
+        buff.setModified(txId, lsn);
     }
 
     /**
@@ -187,7 +187,7 @@ public class Transaction {
             lsn = recoveryMgr.setString(buff, offset, val);
         Page p = buff.contents();
         p.setString(offset, val);
-        buff.setModified(txnum, lsn);
+        buff.setModified(txId, lsn);
     }
 
     /**
@@ -228,8 +228,8 @@ public class Transaction {
         return bm.available();
     }
 
-    private static synchronized int nextTxNumber() {
-        nextTxNum++;
-        return nextTxNum;
+    private static synchronized int nexttxIdber() {
+        nextTxId++;
+        return nextTxId;
     }
 }

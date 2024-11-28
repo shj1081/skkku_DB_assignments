@@ -22,10 +22,10 @@ public class ConcurrencyMgr {
      */
     private static LockTable locktbl = new LockTable();
     private Map<BlockId, String> locks = new HashMap<BlockId, String>();
-    private int txnum; // Add transaction number field
+    private int txId; // transaction id
 
-    public ConcurrencyMgr(int txnum) { // Modified constructor
-        this.txnum = txnum;
+    public ConcurrencyMgr(int txId) {
+        this.txId = txId;
         locks = new HashMap<>();
     }
 
@@ -38,7 +38,7 @@ public class ConcurrencyMgr {
      */
     public void sLock(BlockId blk) {
         if (locks.get(blk) == null) {
-            locktbl.sLock(blk, txnum); // Pass txnum
+            locktbl.sLock(blk, txId);
             locks.put(blk, "S");
         }
     }
@@ -54,7 +54,7 @@ public class ConcurrencyMgr {
     public void xLock(BlockId blk) {
         if (!hasXLock(blk)) {
             sLock(blk);
-            locktbl.xLock(blk, txnum); // Pass txnum
+            locktbl.xLock(blk, txId);
             locks.put(blk, "X");
         }
     }
@@ -65,7 +65,7 @@ public class ConcurrencyMgr {
      */
     public void release() {
         for (BlockId blk : locks.keySet())
-            locktbl.unlock(blk, txnum); // Pass txnum
+            locktbl.unlock(blk, txId);
         locks.clear();
     }
 
