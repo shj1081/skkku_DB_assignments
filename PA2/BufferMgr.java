@@ -73,6 +73,11 @@ public class BufferMgr {
      * @param buff the buffer to be unpinned
      */
     public synchronized void unpin(Buffer buff) {
+
+        // if the buffer.pin is 0, then just return
+        if (!buff.isPinned())
+            return;
+
         buff.unpin();
         if (!buff.isPinned()) {
             numAvailable++;
