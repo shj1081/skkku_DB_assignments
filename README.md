@@ -7,7 +7,7 @@ This repository contains implementations of assignments from the Database System
 ### PA1: Auction Database
 
 - **Objective:** Design and implement a database system for an online auction platform.
-- **Grade:** N/A
+- **Grade:** full score
 - **Key Features:**
   - Developed a text-based menu-driven application for auction management.
   - Database supports functionalities such as user authentication, item listing, bidding, and account management.
@@ -20,7 +20,7 @@ This repository contains implementations of assignments from the Database System
 ### PA2: Simple DBMS modification
 
 - **Objective:** Modify and enhance the SimpleDB system to understand large-scale codebases and implement improvements.
-- **Grade:** N/A
+- **Grade:** full score
 - **Key Features:**
   - **Task 1: Improving Buffer Manager**
     - Implemented LRU (Least Recently Used) buffer replacement strategy.
